@@ -8,7 +8,7 @@ class FakeConnection:
     def __init__(self):
         self.files = {
             cfg_editor.common_cfg_path({"lgsm_path": "/srv/dayz"}):
-                'mods="@DeerIsle\\;@CF"\n',
+                'steamuser="username"\nmods="@DeerIsle\\;@CF"\n',
             cfg_editor.serverdz_path({"lgsm_path": "/srv/dayz"}):
                 'template = "dayzOffline.chernarusplus";\n',
         }
@@ -65,6 +65,28 @@ class CfgEditorTests(unittest.TestCase):
                 )
         self.assertEqual(old_server, fake.files[server_path])
         self.assertEqual(old_common, fake.files[common_path])
+
+    def test_ensure_steam_user_replaces_lgsm_placeholder(self):
+        fake = FakeConnection()
+        cfg = {"lgsm_path": "/srv/dayz", "steam_user": "dayz_manager"}
+        with patch.object(cfg_editor, "connection", fake):
+            self.assertEqual("dayz_manager", cfg_editor.ensure_steam_user(cfg))
+            self.assertEqual("dayz_manager", cfg_editor.get_steam_user(cfg))
+
+    def test_ensure_steam_user_keeps_existing_remote_login(self):
+        fake = FakeConnection()
+        common_path = cfg_editor.common_cfg_path({"lgsm_path": "/srv/dayz"})
+        fake.files[common_path] = 'steamuser="remote_login"\n'
+        cfg = {"lgsm_path": "/srv/dayz", "steam_user": "local_login"}
+        with patch.object(cfg_editor, "connection", fake):
+            self.assertEqual("remote_login", cfg_editor.ensure_steam_user(cfg))
+
+    def test_ensure_steam_user_requires_real_login(self):
+        fake = FakeConnection()
+        cfg = {"lgsm_path": "/srv/dayz", "steam_user": "anonymous"}
+        with patch.object(cfg_editor, "connection", fake):
+            with self.assertRaises(ValueError):
+                cfg_editor.ensure_steam_user(cfg)
 
 
 if __name__ == "__main__":

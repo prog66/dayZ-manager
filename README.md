@@ -260,6 +260,13 @@ Ouvrir `Réglages > Préférences` et renseigner :
 
 Tester ensuite la connexion SSH puis enregistrer.
 
+Avant chaque démarrage, redémarrage ou mise à jour, l'application vérifie le
+`steamuser` du `common.cfg` LinuxGSM. Si la valeur est absente ou correspond
+au placeholder `username`, elle utilise le compte Steam renseigné dans
+`Réglages` et l'écrit dans le fichier distant en vérifiant la valeur relue.
+Le bouton « Enregistrer l'identifiant dans LGSM » permet aussi de déclencher
+explicitement cette synchronisation depuis l'interface.
+
 ### RCON
 
 La configuration RCON se trouve dans `Automatisation`, ou via le bouton

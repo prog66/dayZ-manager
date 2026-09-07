@@ -571,7 +571,7 @@ class Dashboard(QMainWindow):
         if not message:
             return
         if hasattr(self, "logs"):
-            self.logs.append(message)
+            self.logs.appendPlainText(message)
 
     # ================================================================== #
     # PAGE — Tableau de bord
@@ -803,9 +803,10 @@ class Dashboard(QMainWindow):
             grid.addWidget(b, i // 3, i % 3)
         layout.addWidget(panel)
 
-        self.logs = QTextEdit()
+        self.logs = QPlainTextEdit()
         self.logs.setReadOnly(True)
         self.logs.setPlaceholderText("Journal des opérations…")
+        self.logs.setMaximumBlockCount(8000)
         layout.addWidget(self.logs, 1)
 
     def server_action(self, action):
@@ -820,13 +821,60 @@ class Dashboard(QMainWindow):
                                     "Confirmer l'arrêt du serveur ?") != \
                     QMessageBox.StandardButton.Yes:
                 return
+        if action in {"start", "restart", "update"}:
+            self.toast("Vérification du compte Steam LGSM…", "info")
+            self.run_func(
+                partial(cfg_editor.ensure_steam_user, cfg),
+                ok=lambda username: self._execute_server_action(
+                    cfg, action, username
+                ),
+                err=lambda e: self.toast(
+                    f"Compte Steam LGSM non configuré : {e}", "error"
+                ),
+            )
+            return
+        self._execute_server_action(cfg, action)
+
+    def _execute_server_action(self, cfg, action, steam_user=None):
+        if steam_user:
+            self.log(f"Compte Steam LGSM vérifié : {steam_user}")
         self.log(f"> ./dayzserver {action}")
         self.toast(f"Commande « {action} » en cours…", "info")
         self._run_streamed(
             commands.server_action(cfg, action),
             action,
-            on_done=self.refresh_server_stats,
+            on_done=partial(self._verify_server_action, cfg, action),
         )
+
+    def _verify_server_action(self, cfg, action):
+        if action not in {"start", "stop", "restart"}:
+            self.refresh_server_stats()
+            return
+        expected_online = action != "stop"
+        self.toast("Vérification de l'état réel du serveur…", "info")
+        self.run_cmd(
+            commands.wait_for_server_state(cfg, expected_online),
+            ok=lambda output: self._server_state_checked(
+                action, output, True
+            ),
+            err=lambda error: self._server_state_checked(
+                action, error, False
+            ),
+            timeout=90,
+        )
+
+    def _server_state_checked(self, action, output, success):
+        if output:
+            self.log(output)
+        self.refresh_server_stats()
+        if success:
+            self.toast(f"Serveur confirmé après « {action} ». ", "ok")
+        else:
+            self.toast(
+                f"« {action} » accepté par LinuxGSM, mais l'état du processus "
+                "n'est pas confirmé.",
+                "warn",
+            )
 
     # ================================================================== #
     # PAGE — Joueurs (administration live via RCON BattlEye)
@@ -3490,6 +3538,19 @@ class Dashboard(QMainWindow):
         form.addRow("Chemin LGSM", self.path_edit)
         form.addRow("Steam : utilisateur", self.steam_user_edit)
         form.addRow("Steam : mot de passe", self.steam_pass_edit)
+
+        self.sync_steam_btn = QPushButton("🔧  Enregistrer l'identifiant dans LGSM")
+        self.sync_steam_btn.setObjectName("primary")
+        self.sync_steam_btn.clicked.connect(self.sync_steam_with_lgsm)
+        self.lgsm_steam_status = QLabel("LGSM : compte non vérifié")
+        self.lgsm_steam_status.setStyleSheet(f"color: {theme.MUTED};")
+        steam_row = QWidget()
+        steam_layout = QHBoxLayout(steam_row)
+        steam_layout.setContentsMargins(0, 0, 0, 0)
+        steam_layout.addWidget(self.sync_steam_btn)
+        steam_layout.addWidget(self.lgsm_steam_status, 1)
+        form.addRow("Configuration distante", steam_row)
+
         form.addRow("Clé API Steam (Workshop)", self.steam_api_key_edit)
         form.addRow("App ID Workshop", self.app_id_edit)
         form.addRow("Tentatives d'installation", self.install_retries_edit)
@@ -3646,6 +3707,43 @@ class Dashboard(QMainWindow):
         self.apply_connection()
         self._configure_timer()
         self.toast("Réglages enregistrés.", "ok")
+
+    def sync_steam_with_lgsm(self):
+        """Écrit l'identifiant Steam de l'interface dans le common.cfg distant."""
+        if not self._allow("write"):
+            return
+        cfg = self.current_config()
+        cfg.update(self._gather_settings())
+        if not cfg.get("host") or not cfg.get("user"):
+            self.toast("Configure d'abord la connexion SSH.", "error")
+            return
+        username = (cfg.get("steam_user") or "").strip()
+        if not username or username.lower() in {"anonymous", "username"}:
+            self.toast(
+                "Renseigne un véritable identifiant Steam avant la synchronisation.",
+                "error",
+            )
+            return
+        self.sync_steam_btn.setEnabled(False)
+        self.toast("Écriture de steamuser dans LGSM…", "info")
+
+        def on_ok(value):
+            self.sync_steam_btn.setEnabled(True)
+            self.lgsm_steam_status.setText(f"LGSM : {value}")
+            self.lgsm_steam_status.setStyleSheet(f"color: {theme.GREEN};")
+            self.toast("Identifiant Steam enregistré dans LGSM.", "ok")
+
+        def on_err(error):
+            self.sync_steam_btn.setEnabled(True)
+            self.lgsm_steam_status.setText("LGSM : échec de synchronisation")
+            self.lgsm_steam_status.setStyleSheet(f"color: {theme.RED};")
+            self.toast(f"Synchronisation Steam impossible : {error}", "error")
+
+        self.run_func(
+            partial(cfg_editor.set_steam_user, cfg, username),
+            ok=on_ok,
+            err=on_err,
+        )
 
     def test_notification(self):
         cfg = self.current_config()

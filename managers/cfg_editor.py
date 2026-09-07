@@ -31,6 +31,32 @@ def common_cfg_path(cfg):
     return f"{cfg['lgsm_path']}/lgsm/config-lgsm/dayzserver/common.cfg"
 
 
+def get_common_value(content, key):
+    """Lit une valeur simple ``key="value"`` dans un fichier LGSM."""
+    match = re.search(
+        rf'^\s*{re.escape(key)}\s*=\s*(?:"([^"]*)"|([^\s#;]+))\s*$',
+        content,
+        re.MULTILINE,
+    )
+    if not match:
+        return None
+    return match.group(1) if match.group(1) is not None else match.group(2)
+
+
+def _set_common_value_content(content, key, value):
+    """Retourne ``common.cfg`` après remplacement d'une valeur simple."""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+        raise ValueError("Clé LGSM invalide.")
+    value = str(value).strip()
+    if not value or any(char in value for char in '\r\n"'):
+        raise ValueError("Valeur LGSM invalide.")
+    line = f'{key}="{value}"'
+    pattern = rf'^\s*{re.escape(key)}\s*=.*$'
+    if re.search(pattern, content, re.MULTILINE):
+        return re.sub(pattern, line, content, count=1, flags=re.MULTILINE)
+    return (content.rstrip("\n") + "\n" if content else "") + line + "\n"
+
+
 # --------------------------------------------------------------------- #
 # serverDZ.cfg
 # --------------------------------------------------------------------- #
@@ -91,6 +117,51 @@ def _read_common(cfg):
         return connection.read_file(common_cfg_path(cfg))
     except IOError:
         return ""
+
+
+def get_steam_user(cfg):
+    """Renvoie le compte Steam actuellement enregistré dans LGSM."""
+    return get_common_value(_read_common(cfg), "steamuser")
+
+
+def set_steam_user(cfg, username):
+    """Écrit puis relit ``steamuser`` dans le ``common.cfg`` actif."""
+    username = str(username or "").strip()
+    if not username or username.lower() in {"anonymous", "username"}:
+        raise ValueError(
+            "Un véritable identifiant Steam est nécessaire pour LinuxGSM."
+        )
+    if any(char.isspace() for char in username):
+        raise ValueError("L'identifiant Steam ne doit pas contenir d'espace.")
+
+    path = common_cfg_path(cfg)
+    content = _read_common(cfg)
+    connection.write_file(
+        path, _set_common_value_content(content, "steamuser", username)
+    )
+    written = get_steam_user(cfg)
+    if written != username:
+        raise IOError("La valeur steamuser n'a pas pu être vérifiée dans LGSM.")
+    return written
+
+
+def ensure_steam_user(cfg):
+    """Garantit un ``steamuser`` utilisable avant start/restart/update.
+
+    Une valeur déjà valide sur le serveur reste prioritaire. Les valeurs
+    ``username`` et ``anonymous`` sont considérées comme des placeholders et
+    sont remplacées avec le compte renseigné dans les réglages de l'app.
+    """
+    current = (get_steam_user(cfg) or "").strip()
+    if current and current.lower() not in {"anonymous", "username"}:
+        return current
+    configured = (cfg.get("steam_user") or "").strip()
+    if not configured or configured.lower() in {"anonymous", "username"}:
+        raise ValueError(
+            "Compte Steam manquant : renseigne-le dans Réglages puis "
+            "synchronise-le avec LGSM."
+        )
+    return set_steam_user(cfg, configured)
 
 
 def get_mods(cfg):

@@ -28,6 +28,14 @@ class CommandTests(unittest.TestCase):
         self.assertIn("MOD_ACTIVE", script)
         self.assertIn("rm -rf --", script)
 
+    def test_wait_for_server_state_has_bounded_probe(self):
+        script = commands.wait_for_server_state(
+            self.CFG, online=True, attempts=3, delay=2
+        )
+        self.assertIn("seq 1 3", script)
+        self.assertIn('state=online', script)
+        self.assertIn('SERVER_STATE=$state', script)
+
 
 if __name__ == "__main__":
     unittest.main()

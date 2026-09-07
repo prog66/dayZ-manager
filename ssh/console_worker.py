@@ -11,6 +11,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 
 from ssh.connection import connection
 from ssh.ssh_client import SSHError
+from ssh.text import decode_bytes
 
 
 class ConsoleWorker(QThread):
@@ -59,11 +60,16 @@ class ConsoleWorker(QThread):
                     chunk = self._channel.recv(4096)
                     if not chunk:
                         break
+                    # LinuxGSM anime sa progression avec ``\r`` ; dans une
+                    # interface graphique chaque état doit devenir une ligne.
+                    chunk = chunk.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
                     buffer += chunk
                     # On émet des lignes complètes pour un rendu propre.
                     *lines, buffer = buffer.split(b"\n")
                     for line in lines:
-                        self.output.emit(line.decode(errors="ignore"))
+                        text = decode_bytes(line)
+                        if text:
+                            self.output.emit(text)
                 elif self._channel.exit_status_ready():
                     break
                 else:
@@ -78,7 +84,9 @@ class ConsoleWorker(QThread):
                 break
 
         if buffer:
-            self.output.emit(buffer.decode(errors="ignore"))
+            text = decode_bytes(buffer)
+            if text:
+                self.output.emit(text)
 
         try:
             interrupted = not self._running

@@ -11,6 +11,8 @@ import stat
 
 import paramiko
 
+from ssh.text import decode_bytes
+
 
 class SSHError(Exception):
     """Erreur réseau / authentification lisible côté UI."""
@@ -67,8 +69,8 @@ class SSHClient:
 
         stdin, stdout, stderr = self.client.exec_command(command, timeout=timeout)
         exit_code = stdout.channel.recv_exit_status()
-        out = stdout.read().decode(errors="ignore")
-        err = stderr.read().decode(errors="ignore")
+        out = decode_bytes(stdout.read())
+        err = decode_bytes(stderr.read())
         return exit_code, out, err
 
     def open_shell_channel(self, command, get_pty=True):
@@ -90,15 +92,15 @@ class SSHClient:
         sftp = self.client.open_sftp()
         try:
             with sftp.open(remote_path, "r") as handle:
-                return handle.read().decode(errors="ignore")
+                return decode_bytes(handle.read())
         finally:
             sftp.close()
 
     def write_file(self, remote_path, content):
         sftp = self.client.open_sftp()
         try:
-            with sftp.open(remote_path, "w") as handle:
-                handle.write(content)
+            with sftp.open(remote_path, "wb") as handle:
+                handle.write(str(content).encode("utf-8"))
         finally:
             sftp.close()
 

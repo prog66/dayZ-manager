@@ -16,6 +16,7 @@ from PyQt6.QtCore import QThread, pyqtSignal
 from managers.commands import INSTALL_MARK
 from ssh.connection import connection
 from ssh.ssh_client import SSHError
+from ssh.text import decode_bytes
 
 
 class InstallWorker(QThread):
@@ -66,7 +67,7 @@ class InstallWorker(QThread):
                     buffer += chunk
                     *lines, buffer = buffer.split(b"\n")
                     for raw in lines:
-                        if self._dispatch(raw.decode(errors="ignore")):
+                        if self._dispatch(decode_bytes(raw)):
                             saw_done = True
                             self._running = False
                             break
@@ -78,7 +79,7 @@ class InstallWorker(QThread):
                 break
 
         if buffer:
-            if self._dispatch(buffer.decode(errors="ignore")):
+            if self._dispatch(decode_bytes(buffer)):
                 saw_done = True
 
         try:

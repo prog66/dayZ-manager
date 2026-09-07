@@ -22,6 +22,25 @@ def server_action(cfg, action):
     return f"{lgsm(cfg)} ./dayzserver {action}"
 
 
+def wait_for_server_state(cfg, online, attempts=12, delay=5):
+    """Attend que le processus DayZ atteigne l'état demandé."""
+    attempts = max(1, min(60, int(attempts)))
+    delay = max(1, min(30, int(delay)))
+    expected = "online" if online else "offline"
+    return f"""{lgsm(cfg)}
+for i in $(seq 1 {attempts}); do
+    if pgrep -f DayZServer >/dev/null; then state=online; else state=offline; fi
+    if [ "$state" = "{expected}" ]; then
+        echo "SERVER_STATE=$state"
+        exit 0
+    fi
+    sleep {delay}
+done
+echo "SERVER_STATE=$state"
+exit 1
+"""
+
+
 # --------------------------------------------------------------------- #
 # Monitoring : un seul appel SSH renvoie toutes les métriques, une par
 # ligne, dans un ordre fixe.
