@@ -1,0 +1,59 @@
+name: Build and publish Windows release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Créer l'environnement verrouillé
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
+
+      - name: Vérifier que le tag correspond à la version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $tagVersion = $env:RELEASE_TAG.TrimStart('v')
+          $appVersion = .\.venv\Scripts\python.exe -c "from version import APP_VERSION; print(APP_VERSION)"
+          if ($tagVersion -ne $appVersion.Trim()) {
+            throw "Le tag $tagVersion ne correspond pas à APP_VERSION $($appVersion.Trim())."
+          }
+
+      - name: Tester le code
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
+
+      - name: Construire le paquet
+        shell: cmd
+        run: build.bat
+
+      - name: Publier la release GitHub
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            "dist/staging/DayZManager-windows-amd64.zip" `
+            "dist/staging/DayZManager-windows-amd64.zip.sha256" `
+            "dist/staging/checksums.sha256" `
+            --repo $env:GITHUB_REPOSITORY `
+            --generate-notes

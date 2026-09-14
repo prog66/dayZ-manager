@@ -1,0 +1,25 @@
+# Secrets : config.json contient des identifiants SSH / Steam
+config.json
+map_profiles.json
+
+# Artefacts de build
+build/
+dist/
+*.spec.bak
+
+# Anciens essais de build locaux et helpers personnels
+build_map_switch/
+build_map_switch2/
+dist_map_switch/
+dist_map_switch2/
+_animals_boost.py
+_boss_killable.py
+_inspect.py
+.claude/
+.ruff_cache/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
