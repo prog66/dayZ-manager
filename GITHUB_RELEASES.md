@@ -7,18 +7,21 @@ vérification depuis `À propos > Mises à jour`.
 ## Préparer le dépôt
 
 1. Le dépôt officiel est [`prog66/dayZ-manager`](https://github.com/prog66/dayZ-manager).
-2. `version.py` pointe déjà vers ce dépôt avec `GITHUB_REPOSITORY`.
-   Cette valeur peut aussi être modifiée dans l'application, dans
-   `À propos > Mises à jour`.
+2. `version.py` pointe déjà vers ce dépôt avec `GITHUB_REPOSITORY_URL`.
+   Cette URL est affichée par défaut dans l'application, dans
+   `À propos > Mises à jour`. La forme courte `owner/repository` reste
+   également acceptée.
 3. Augmenter `APP_VERSION` avant chaque publication.
 
 ## Publier une version
 
-Le workflow `.github/workflows/release.yml` se déclenche avec un tag `vX.Y.Z`.
+Le workflow `.github/workflows/ci.yml` teste et construit automatiquement chaque
+push sur `main` et chaque pull request. Le workflow
+`.github/workflows/release.yml` publie une release avec un tag `vX.Y.Z`.
 Le tag doit correspondre exactement à `APP_VERSION` sans le `v`.
 
 ```text
-v0.9.1  ->  APP_VERSION = "0.9.1"
+v0.9.2  ->  APP_VERSION = "0.9.2"
 ```
 
 Le workflow lance les tests, construit l'exécutable Windows et publie :

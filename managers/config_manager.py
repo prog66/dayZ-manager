@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 import sys
 
-from version import GITHUB_REPOSITORY
+from version import GITHUB_REPOSITORY_URL
 
 SOURCE_ROOT = Path(__file__).resolve().parent.parent
 APP_DATA_DIR = (
@@ -66,7 +66,7 @@ DEFAULTS = {
     # Mode d'accès local à l'application.
     "user_role": "admin",
     # Dépôt public utilisé par le vérificateur de mises à jour.
-    "github_repository": GITHUB_REPOSITORY,
+    "github_repository": GITHUB_REPOSITORY_URL,
 }
 
 

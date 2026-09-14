@@ -11,7 +11,7 @@ Projet officiel : [github.com/prog66/dayZ-manager](https://github.com/prog66/day
 > **Signature du projet : Yann Escarbassière & Nova <3**
 
 ![Statut](https://img.shields.io/badge/statut-open%20source%20en%20construction-1f6feb)
-![Version](https://img.shields.io/badge/version-0.9.1-2ea043)
+![Version](https://img.shields.io/badge/version-0.9.2-2ea043)
 ![Plateforme](https://img.shields.io/badge/plateforme-Windows%2064--bit-0078d4)
 ![Interface](https://img.shields.io/badge/interface-PyQt6-41cd52)
 ![Licence](https://img.shields.io/badge/licence-GPL--3.0-blue)
@@ -339,10 +339,13 @@ Le logiciel pointe vers le dépôt officiel :
 
 ```python
 GITHUB_REPOSITORY = "prog66/dayZ-manager"
+GITHUB_REPOSITORY_URL = "https://github.com/prog66/dayZ-manager"
 ```
 
-La valeur peut aussi être saisie dans l'application puis enregistrée. Elle
-est conservée dans `config.json`.
+L'interface affiche par défaut l'URL complète
+`https://github.com/prog66/dayZ-manager`. Une forme courte
+`owner/repository` reste acceptée et la valeur est conservée dans
+`config.json`.
 
 ### Contrôles avant installation
 
@@ -394,12 +397,26 @@ Avant publication :
 4. créer un tag correspondant exactement à la version.
 
 ```text
-APP_VERSION = "0.9.1"
-tag GitHub   = v0.9.1
+APP_VERSION = "0.9.2"
+tag GitHub   = v0.9.2
 ```
 
 Le workflow installe les versions verrouillées, teste, construit le paquet et
 publie l'archive ainsi que les fichiers de hash dans la release.
+
+### Build automatique après les commits
+
+Le workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) utilise les
+runners Windows de GitHub Actions. Il s'exécute automatiquement :
+
+- après chaque push sur `main` ;
+- pour chaque pull request vers `main` ;
+- à la demande depuis l'onglet **Actions**.
+
+Il installe les dépendances verrouillées, lance les tests, vérifie la
+compilation Python et construit un paquet Windows de validation. Ce paquet est
+conservé comme artefact pendant 14 jours. La publication publique reste
+réservée aux tags `vX.Y.Z` gérés par `release.yml`.
 
 ## Architecture
 

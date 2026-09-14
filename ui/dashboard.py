@@ -29,7 +29,7 @@ from ssh.connection import connection
 from ssh.ssh_worker import SSHWorker, FuncWorker
 from ssh.console_worker import ConsoleWorker
 from ui import theme
-from version import APP_VERSION, GITHUB_REPOSITORY
+from version import APP_VERSION, GITHUB_REPOSITORY_URL
 
 NAV = [
     ("Accueil", "build_dashboard_page"),
@@ -3589,9 +3589,20 @@ class Dashboard(QMainWindow):
         self.email_password_edit.setText(cfg.get("notification_email_password", ""))
         self.email_from_edit.setText(cfg.get("notification_email_from", ""))
         self.email_to_edit.setText(cfg.get("notification_email_to", ""))
-        self.github_repository_edit.setText(
-            cfg.get("github_repository", GITHUB_REPOSITORY) or GITHUB_REPOSITORY
+        repository = (
+            cfg.get("github_repository", GITHUB_REPOSITORY_URL)
+            or GITHUB_REPOSITORY_URL
         )
+        try:
+            repository = (
+                "https://github.com/"
+                + updater.normalize_repository(repository)
+            )
+        except updater.UpdateError:
+            # Laisser une valeur personnalisée invalide visible afin que
+            # l'utilisateur puisse la corriger dans l'interface.
+            pass
+        self.github_repository_edit.setText(repository)
 
     def _gather_settings(self):
         return {
@@ -3773,20 +3784,28 @@ class Dashboard(QMainWindow):
         value = self.github_repository_edit.text().strip()
         if value:
             return value
-        return ConfigManager.load().get("github_repository") or GITHUB_REPOSITORY
+        return (
+            ConfigManager.load().get("github_repository")
+            or GITHUB_REPOSITORY_URL
+        )
 
     def _auto_check_for_updates(self):
         if self._update_repository():
             self.check_for_updates(silent=True)
 
     def save_update_repository(self):
-        repository = self.github_repository_edit.text().strip()
-        if repository:
-            try:
-                repository = updater.normalize_repository(repository)
-            except updater.UpdateError as exc:
-                self.toast(str(exc), "error")
-                return
+        repository = (
+            self.github_repository_edit.text().strip()
+            or GITHUB_REPOSITORY_URL
+        )
+        try:
+            repository = (
+                "https://github.com/"
+                + updater.normalize_repository(repository)
+            )
+        except updater.UpdateError as exc:
+            self.toast(str(exc), "error")
+            return
         cfg = self.current_config()
         cfg["github_repository"] = repository
         ConfigManager.save(cfg)
@@ -3925,9 +3944,12 @@ class Dashboard(QMainWindow):
         repository_row = QHBoxLayout()
         repository_row.addWidget(QLabel("Dépôt GitHub"))
         self.github_repository_edit = QLineEdit()
-        self.github_repository_edit.setPlaceholderText("owner/repository")
+        self.github_repository_edit.setPlaceholderText(
+            "https://github.com/owner/repository"
+        )
         self.github_repository_edit.setToolTip(
-            "Dépôt public contenant les releases GitHub, par exemple owner/repository."
+            "Dépôt public contenant les releases GitHub. URL complète acceptée, "
+            "par exemple https://github.com/owner/repository."
         )
         self.save_update_repository_btn = QPushButton("Enregistrer")
         self.save_update_repository_btn.clicked.connect(self.save_update_repository)
@@ -3964,9 +3986,11 @@ class Dashboard(QMainWindow):
         text.setPlainText(
             f"DayZ Manager — v{APP_VERSION}\n"
             "Auteur : Yann Escarbassière\n\n"
-            "Nouveautés v0.9.1 :\n"
+            "Nouveautés v0.9.2 :\n"
             "  • Page de connexion corrigée : les libellés restent lisibles\n"
             "    quelle que soit la hauteur de la fenêtre\n"
+            "  • URL officielle GitHub préremplie pour les mises à jour\n"
+            "  • Build automatique après chaque push sur main\n"
             "  • Profils de cartes : mission, mods ordonnés et paramètres LGSM\n"
             "  • Rotation automatique des cartes par horaires et fuseau\n"
             "  • Installation d'une carte depuis une collection Workshop\n"

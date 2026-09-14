@@ -1,0 +1,66 @@
+name: Continuous build
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: continuous-build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Tester et construire Windows
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Récupérer le code
+        uses: actions/checkout@v7
+
+      - name: Installer Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Créer l'environnement verrouillé
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install -r requirements-lock.txt
+
+      - name: Vérifier l'environnement
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe tools\verify_environment.py --lock requirements-lock.txt
+
+      - name: Tester le code
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
+
+      - name: Vérifier la compilation Python
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m compileall -q .
+
+      - name: Construire le paquet Windows
+        shell: cmd
+        run: build.bat
+
+      - name: Archiver le build de validation
+        uses: actions/upload-artifact@v7
+        with:
+          name: DayZManager-windows-${{ github.sha }}
+          path: |
+            dist/staging/DayZManager-windows-amd64.zip
+            dist/staging/DayZManager-windows-amd64.zip.sha256
+            dist/staging/checksums.sha256
+          if-no-files-found: error
+          retention-days: 14
