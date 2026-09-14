@@ -3429,10 +3429,26 @@ class Dashboard(QMainWindow):
     def build_settings_page(self, layout):
         self._header(layout, "Réglages", "Connexion SSH, SteamCMD et options.")
 
+        # La page Préférences contient beaucoup de champs. Dans un sous-onglet
+        # de hauteur limitée, laisser les panneaux directement dans le layout
+        # les comprimait jusqu'à écraser la hauteur des libellés. Un scroll
+        # vertical conserve une taille lisible pour chaque ligne.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(0, 0, 6, 0)
+        content_layout.setSpacing(12)
+
         panel = self._panel()
         form = QFormLayout(panel)
         form.setContentsMargins(16, 16, 16, 16)
         form.setVerticalSpacing(12)
+        form.setHorizontalSpacing(24)
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
 
         self.host_edit = QLineEdit()
         self.port_edit = QSpinBox()
@@ -3481,12 +3497,16 @@ class Dashboard(QMainWindow):
         form.addRow("Intervalle d'actualisation", self.interval_edit)
         form.addRow("Rôle local", self.role_combo)
         form.addRow("Fuseau des planifications", self.timezone_edit)
-        layout.addWidget(panel)
+        content_layout.addWidget(panel)
 
         notify_panel = self._panel()
         notify_form = QFormLayout(notify_panel)
         notify_form.setContentsMargins(16, 16, 16, 16)
         notify_form.setVerticalSpacing(8)
+        notify_form.setHorizontalSpacing(24)
+        notify_form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        notify_form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
+        notify_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
         self.discord_webhook_edit = QLineEdit()
         self.discord_webhook_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.discord_webhook_edit.setPlaceholderText("Webhook Discord")
@@ -3507,7 +3527,7 @@ class Dashboard(QMainWindow):
         notify_form.addRow("Mot de passe SMTP", self.email_password_edit)
         notify_form.addRow("Expéditeur", self.email_from_edit)
         notify_form.addRow("Destinataire", self.email_to_edit)
-        layout.addWidget(notify_panel)
+        content_layout.addWidget(notify_panel)
 
         row = QHBoxLayout()
         self.test_btn = QPushButton("🔌  Tester la connexion")
@@ -3518,7 +3538,7 @@ class Dashboard(QMainWindow):
         row.addWidget(self.test_btn)
         row.addWidget(self.save_settings_btn)
         row.addStretch(1)
-        layout.addLayout(row)
+        content_layout.addLayout(row)
 
         profile_row = QHBoxLayout()
         self.export_profile_btn = QPushButton("📤  Exporter le profil")
@@ -3531,7 +3551,7 @@ class Dashboard(QMainWindow):
         profile_row.addWidget(self.import_profile_btn)
         profile_row.addWidget(self.test_notification_btn)
         profile_row.addStretch(1)
-        layout.addLayout(profile_row)
+        content_layout.addLayout(profile_row)
 
         note = QLabel(
             "🔒 Les mots de passe sont stockés obfusqués (base64) dans config.json — "
@@ -3539,8 +3559,10 @@ class Dashboard(QMainWindow):
         )
         note.setWordWrap(True)
         note.setStyleSheet(f"color: {theme.MUTED}; font-size: 9.5pt;")
-        layout.addWidget(note)
-        layout.addStretch(1)
+        content_layout.addWidget(note)
+        content_layout.addStretch(1)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
 
     def _load_settings_fields(self):
         cfg = self.current_config()
@@ -3942,7 +3964,9 @@ class Dashboard(QMainWindow):
         text.setPlainText(
             f"DayZ Manager — v{APP_VERSION}\n"
             "Auteur : Yann Escarbassière\n\n"
-            "Nouveautés v0.9.0 :\n"
+            "Nouveautés v0.9.1 :\n"
+            "  • Page de connexion corrigée : les libellés restent lisibles\n"
+            "    quelle que soit la hauteur de la fenêtre\n"
             "  • Profils de cartes : mission, mods ordonnés et paramètres LGSM\n"
             "  • Rotation automatique des cartes par horaires et fuseau\n"
             "  • Installation d'une carte depuis une collection Workshop\n"

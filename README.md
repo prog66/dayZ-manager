@@ -11,7 +11,7 @@ Projet officiel : [github.com/prog66/dayZ-manager](https://github.com/prog66/day
 > **Signature du projet : Yann Escarbassière & Nova <3**
 
 ![Statut](https://img.shields.io/badge/statut-open%20source%20en%20construction-1f6feb)
-![Version](https://img.shields.io/badge/version-0.9.0-2ea043)
+![Version](https://img.shields.io/badge/version-0.9.1-2ea043)
 ![Plateforme](https://img.shields.io/badge/plateforme-Windows%2064--bit-0078d4)
 ![Interface](https://img.shields.io/badge/interface-PyQt6-41cd52)
 ![Licence](https://img.shields.io/badge/licence-GPL--3.0-blue)
