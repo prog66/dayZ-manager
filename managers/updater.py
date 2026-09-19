@@ -328,6 +328,8 @@ def prepare_update(info: UpdateInfo, install_dir: str | Path | None = None) -> U
         install_path = Path(install_dir).resolve()
     if not install_path.is_dir():
         raise UpdateError("Dossier d'installation introuvable.")
+    if install_path == Path(install_path.anchor) or not (install_path / "DayZManager.exe").is_file():
+        raise UpdateError("Le dossier cible ne contient pas une installation DayZ Manager.")
 
     temp_root = Path(tempfile.mkdtemp(prefix="dayz-manager-update-"))
     archive = temp_root / info.asset_name
@@ -349,7 +351,7 @@ def prepare_update(info: UpdateInfo, install_dir: str | Path | None = None) -> U
         # restaurés par l'installateur différé après le remplacement du paquet.
         preserved_dir = temp_root / "preserved"
         preserved_dir.mkdir()
-        for name in ("config.json", "map_profiles.json"):
+        for name in ("config.json", "map_profiles.json", "known_hosts"):
             source = install_path / name
             if source.is_file():
                 shutil.copy2(source, preserved_dir / name)
@@ -380,16 +382,23 @@ for ($attempt = 0; $attempt -lt 60; $attempt++) {
     }
 }
 
-$backup = "$Target.__previous"
+$Target = [IO.Path]::GetFullPath($Target)
+$Staged = [IO.Path]::GetFullPath($Staged)
+if ($Target.TrimEnd('\') -eq [IO.Path]::GetPathRoot($Target).TrimEnd('\')) { exit 1 }
+if (-not (Test-Path -LiteralPath (Join-Path $Target 'DayZManager.exe'))) { exit 1 }
+if (-not (Test-Path -LiteralPath (Join-Path $Staged 'DayZManager.exe'))) { exit 1 }
+if (Get-Process -Id $ParentPid -ErrorAction SilentlyContinue) { exit 1 }
+$backup = "$Target.__previous-$([guid]::NewGuid().ToString('N'))"
+$movedOld = $false
+$installedNew = $false
 try {
-    if (Test-Path -LiteralPath $backup) {
-        Remove-Item -LiteralPath $backup -Recurse -Force
-    }
     Move-Item -LiteralPath $Target -Destination $backup
+    $movedOld = $true
     Move-Item -LiteralPath $Staged -Destination $Target
+    $installedNew = $true
 
-    foreach ($name in @("config.json", "map_profiles.json")) {
-        $oldData = Join-Path $Preserved $name
+    foreach ($name in @("config.json", "map_profiles.json", "known_hosts")) {
+        $oldData = Join-Path $backup $name
         if (Test-Path -LiteralPath $oldData) {
             Copy-Item -LiteralPath $oldData -Destination (Join-Path $Target $name) -Force
         }
@@ -399,15 +408,14 @@ try {
         throw "Exécutable absent après installation."
     }
     Start-Process -FilePath $Executable -WorkingDirectory $Target
-    Remove-Item -LiteralPath $backup -Recurse -Force
 } catch {
     try {
-        if (Test-Path -LiteralPath $Target) {
-            Remove-Item -LiteralPath $Target -Recurse -Force
+        if ($installedNew -and (Test-Path -LiteralPath $Target)) {
+            Move-Item -LiteralPath $Target -Destination "$Target.__failed-$([guid]::NewGuid().ToString('N'))"
         }
     } catch {}
     try {
-        if (Test-Path -LiteralPath $backup) {
+        if ($movedOld -and (Test-Path -LiteralPath $backup)) {
             Move-Item -LiteralPath $backup -Destination $Target
         }
     } catch {}

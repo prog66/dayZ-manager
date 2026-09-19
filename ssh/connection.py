@@ -87,6 +87,11 @@ class Connection:
         with self._lock:
             self._client.close()
 
+    def import_mission(self, local_dir, remote_dir, replace=False, progress=None):
+        with self._lock:
+            self._ensure()
+            return self._client.import_mission(local_dir, remote_dir, replace, progress)
+
 
 # Instance partagée par toute l'application.
 connection = Connection()

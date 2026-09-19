@@ -4,9 +4,23 @@ import unittest
 from pathlib import Path
 
 from tools.release_manifest import build_manifest, write_release_files
+from tools.package_release import build_archive
+import zipfile
 
 
 class ReleaseManifestTests(unittest.TestCase):
+    def test_package_excludes_private_local_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / 'DayZManager'
+            package.mkdir()
+            for name in ('DayZManager.exe', 'manifest.json', 'config.json', 'map_profiles.json', 'known_hosts'):
+                (package / name).write_text('fixture', encoding='utf-8')
+            archive, _ = build_archive(package, root / 'app.zip')
+            with zipfile.ZipFile(archive) as zipped:
+                names = [Path(name).name for name in zipped.namelist()]
+            self.assertEqual(sorted(names), ['DayZManager.exe', 'manifest.json'])
+
     def test_manifest_contains_artifact_hash_and_stable_source_fingerprint(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

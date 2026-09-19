@@ -27,6 +27,73 @@ MONITOR_NAME = "dayz_manager_monitor.sh"
 MAP_ROTATION_TAG = "# DAYZ-MANAGER-MAP"
 MAP_ROTATION_NAME = "dayz_manager_map_rotation.py"
 
+
+def _without_job(existing, tag):
+    begin, end = f"# BEGIN {tag[2:]}", f"# END {tag[2:]}"
+    kept, inside = [], False
+    for line in existing.splitlines():
+        if line == begin:
+            inside = True
+            continue
+        if line == end:
+            inside = False
+            continue
+        if not inside and not line.rstrip().endswith(tag):
+            kept.append(line)
+    return kept
+
+
+def _merge_job(existing, tag, cron_lines, timezone):
+    kept = _without_job(existing, tag)
+    previous = ""
+    for line in kept:
+        match = re.match(r'^\s*CRON_TZ\s*=\s*(.*?)\s*$', line)
+        if match:
+            previous = match.group(1)
+    block = [f"# BEGIN {tag[2:]}"]
+    if timezone:
+        block.append(f"CRON_TZ={timezone}")
+    block.extend(cron_lines)
+    if timezone:
+        block.append(f"CRON_TZ={previous}")
+    block.append(f"# END {tag[2:]}")
+    return "\n".join(kept + block).strip() + "\n"
+
+
+def _read_crontab():
+    code, out, err = connection.execute("LC_ALL=C crontab -l")
+    if code == 0:
+        return out
+    if code == 1 and 'no crontab for' in (out + err).lower():
+        return ''
+    raise RuntimeError(err or out or "Lecture de crontab impossible ; aucune modification effectuée.")
+
+
+def _disable_job_command(tag, success):
+    # Exact suffixes distinguish DAYZ-MANAGER from DAYZ-MANAGER-MAP.
+    script = '''import os, subprocess, sys
+tag = sys.argv[1]
+result = subprocess.run(['crontab', '-l'], capture_output=True, text=True, env=dict(os.environ, LC_ALL='C'))
+if result.returncode:
+    if result.returncode == 1 and 'no crontab for' in result.stderr.lower():
+        raise SystemExit(0)
+    sys.stderr.write(result.stderr)
+    raise SystemExit(result.returncode)
+inside = False
+kept = []
+for line in result.stdout.splitlines():
+    if line == '# BEGIN ' + tag[2:]:
+        inside = True
+        continue
+    if line == '# END ' + tag[2:]:
+        inside = False
+        continue
+    if not inside and not line.rstrip().endswith(tag):
+        kept.append(line)
+raise SystemExit(subprocess.run(['crontab', '-'], input='\\n'.join(kept) + '\\n', text=True).returncode)
+'''
+    return f"python3 -c {quote(script)} {quote(tag)} && echo {success}"
+
 # Client RCON BattlEye minimal (UDP), exécuté côté serveur (python3).
 RCON_SCRIPT = r'''#!/usr/bin/env python3
 """Mini-client RCON BattlEye : envoie une commande puis quitte.
@@ -142,7 +209,7 @@ def _restart_script(cfg, warn_before, marks, message):
     if prev > 0:
         lines.append(f"sleep {prev * 60}")
     lines.append('warn "Redemarrage du serveur en cours..."')
-    lines.append('./dayzserver restart >> "$LOG" 2>&1')
+    lines.append('./dayzserver restart >> "$LOG" 2>&1 || exit $?')
     lines.append('echo "[$(date "+%F %T")] restart LGSM termine" >> "$LOG"')
     lines.append("")
     return "\n".join(lines)
@@ -179,13 +246,8 @@ def apply(cfg, times_str, warn_before, marks, message, timezone=""):
         )
 
     # 3) Fusionne avec le crontab existant (en retirant notre ancien bloc).
-    _, existing, _ = connection.execute("crontab -l 2>/dev/null")
-    kept = [
-        ln for ln in existing.splitlines()
-        if TAG not in ln and not ln.startswith("CRON_TZ=") and ln.strip()
-    ]
-    tz_line = [f"CRON_TZ={timezone}"] if timezone else []
-    new_crontab = "\n".join(kept + tz_line + cron_lines).strip() + "\n"
+    existing = _read_crontab()
+    new_crontab = _merge_job(existing, TAG, cron_lines, timezone)
 
     tmp = f"{cfg['lgsm_path'].rstrip('/')}/.dayz_manager_cron"
     connection.write_file(tmp, new_crontab)
@@ -203,11 +265,7 @@ def apply(cfg, times_str, warn_before, marks, message, timezone=""):
 
 def disable_command():
     """Commande shell retirant notre bloc du crontab."""
-    return (
-        f"( crontab -l 2>/dev/null | grep -v {quote(TAG)} | "
-        "grep -v '^CRON_TZ=' ) | crontab - "
-        f"2>/dev/null; echo CLEARED"
-    )
+    return _disable_job_command(TAG, "CLEARED")
 
 
 def _rotation_script(cfg, profiles):
@@ -300,14 +358,8 @@ def apply_map_rotation(cfg, profiles, times_str, timezone=""):
             f"{index} >> {quote(base + '/dayz_manager_map_rotation.log')} 2>&1 "
             f"{MAP_ROTATION_TAG}"
         )
-    _, existing, _ = connection.execute("crontab -l 2>/dev/null")
-    kept = [
-        line for line in existing.splitlines()
-        if MAP_ROTATION_TAG not in line and not line.startswith("CRON_TZ=")
-        and line.strip()
-    ]
-    tz_line = [f"CRON_TZ={timezone}"] if timezone else []
-    new_crontab = "\n".join(kept + tz_line + cron_lines).strip() + "\n"
+    existing = _read_crontab()
+    new_crontab = _merge_job(existing, MAP_ROTATION_TAG, cron_lines, timezone)
     tmp = f"{base}/.dayz_manager_map_cron"
     connection.write_file(tmp, new_crontab)
     code, out, err = connection.execute(
@@ -322,10 +374,7 @@ def apply_map_rotation(cfg, profiles, times_str, timezone=""):
 
 
 def disable_map_rotation_command():
-    return (
-        f"( crontab -l 2>/dev/null | grep -v {quote(MAP_ROTATION_TAG)} | "
-        "grep -v '^CRON_TZ=' ) | crontab - 2>/dev/null; echo MAP_ROTATION_OFF"
-    )
+    return _disable_job_command(MAP_ROTATION_TAG, "MAP_ROTATION_OFF")
 
 
 def view_map_rotation_command():
@@ -375,10 +424,8 @@ def apply_monitor(cfg, every_minutes=5):
         f"*/{every} * * * * /bin/bash {quote(monitor_path)} "
         f">/dev/null 2>&1 {MONITOR_TAG}"
     )
-    _, existing, _ = connection.execute("crontab -l 2>/dev/null")
-    kept = [ln for ln in existing.splitlines()
-            if MONITOR_TAG not in ln and ln.strip()]
-    new_crontab = "\n".join(kept + [line]).strip() + "\n"
+    existing = _read_crontab()
+    new_crontab = _merge_job(existing, MONITOR_TAG, [line], "")
 
     tmp = f"{base}/.dayz_manager_cron_mon"
     connection.write_file(tmp, new_crontab)
@@ -393,10 +440,7 @@ def apply_monitor(cfg, every_minutes=5):
 
 def disable_monitor_command():
     """Commande shell retirant le bloc auto-restart du crontab."""
-    return (
-        f"( crontab -l 2>/dev/null | grep -v {quote(MONITOR_TAG)} ) | crontab - "
-        f"2>/dev/null; echo MONITOR_OFF"
-    )
+    return _disable_job_command(MONITOR_TAG, "MONITOR_OFF")
 
 
 def monitor_view_command():

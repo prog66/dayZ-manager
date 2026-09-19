@@ -5,6 +5,7 @@ mods/missions découverts en options testables et réutilisables par l'UI.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 MAP_TEMPLATES = {
@@ -39,6 +40,48 @@ def guess_template(mod_name):
     if not mod_name:
         return "dayzOffline."
     return "dayzOffline." + str(mod_name).lstrip("@").lower()
+
+
+def prepare_mission_source(local_dir):
+    """Résout un dossier téléchargé vers sa vraie mission et son template.
+
+    Certains dépôts contiennent un dossier racine supplémentaire, comme
+    ``DayZ-Alteria-Missions-main/empty.alteria``. L'importeur peut recevoir le
+    dossier racine et sélectionner automatiquement le seul sous-dossier qui
+    ressemble à une mission DayZ.
+    """
+    path = Path(local_dir).expanduser().resolve()
+    if not path.is_dir():
+        raise ValueError("Sélectionne un dossier extrait, pas une archive ZIP.")
+
+    def looks_like_mission(candidate):
+        return (candidate / "init.c").is_file()
+
+    if not looks_like_mission(path):
+        candidates = [
+            child for child in path.iterdir()
+            if child.is_dir() and looks_like_mission(child)
+        ]
+        if len(candidates) == 1:
+            path = candidates[0]
+        elif not candidates:
+            raise ValueError(
+                "Le dossier sélectionné ne contient pas de mission DayZ "
+                "reconnaissable (init.c manquant)."
+            )
+        else:
+            raise ValueError(
+                "Plusieurs missions sont présentes : sélectionne directement "
+                "le dossier de mission voulu."
+            )
+
+    folder_name = path.name
+    normalized_name = folder_name.casefold()
+    if normalized_name == "empty.alteria" or "alteria" in path.parent.name.casefold():
+        template = "dayzOffline.alteria"
+    else:
+        template = folder_name
+    return str(path), template
 
 
 def discover_maps(installed_mods, missions):

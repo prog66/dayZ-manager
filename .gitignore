@@ -1,6 +1,8 @@
 # Secrets : config.json contient des identifiants SSH / Steam
 config.json
 map_profiles.json
+known_hosts
+.config-*.tmp
 
 # Artefacts de build
 build/

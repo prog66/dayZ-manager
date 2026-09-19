@@ -10,7 +10,7 @@ from ssh.ssh_client import SSHError
 
 
 class SSHWorker(QThread):
-    finished = pyqtSignal(str)
+    completed = pyqtSignal(str)
     error = pyqtSignal(str)
 
     def __init__(self, command, timeout=120):
@@ -33,7 +33,7 @@ class SSHWorker(QThread):
             result = (result + "\n" + err).strip()
 
         if exit_code == 0:
-            self.finished.emit(result)
+            self.completed.emit(result)
         else:
             self.error.emit(result or f"Code de sortie {exit_code}")
 
@@ -41,10 +41,11 @@ class SSHWorker(QThread):
 class FuncWorker(QThread):
     """Exécute un callable (typiquement des opérations SFTP) hors UI.
 
-    Émet ``finished(object)`` avec la valeur de retour, ou ``error(str)``.
+    Émet ``completed(object)`` avec la valeur de retour, ou ``error(str)``.
+    Le signal natif ``finished`` reste réservé à la fin effective du thread.
     """
 
-    finished = pyqtSignal(object)
+    completed = pyqtSignal(object)
     error = pyqtSignal(str)
 
     def __init__(self, func, *args, **kwargs):
@@ -61,4 +62,4 @@ class FuncWorker(QThread):
         except Exception as exc:
             self.error.emit(str(exc))
         else:
-            self.finished.emit(result)
+            self.completed.emit(result)

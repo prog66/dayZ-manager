@@ -49,6 +49,8 @@ def _parse(data):
     if len(data) < 8 or data[:2] != b"BE":
         return None, None
     body = data[6:]            # saute 'BE' + CRC(4)
+    if zlib.crc32(body) & 0xffffffff != int.from_bytes(data[2:6], 'little'):
+        return None, None
     if not body or body[0] != 0xFF:
         return None, None
     return body[1], body[2:]
@@ -83,7 +85,10 @@ def main():
                 ptype, payload = _parse(s.recv(4096))
             except socket.timeout:
                 break
-            if ptype != 0x01 or payload is None:
+            if ptype == 0x02 and payload:
+                s.send(_packet(b'\xff\x02' + payload[:1]))
+                continue
+            if ptype != 0x01 or not payload or payload[0] != 0:
                 continue
             rest = payload[1:]            # saute l'octet de sequence
             if len(rest) >= 3 and rest[0] == 0x00:
@@ -94,7 +99,10 @@ def main():
                 total = 1
             if len(parts) >= total:
                 break
-        out = b"".join(parts[i] for i in sorted(parts))
+        if total < 1 or any(i not in parts for i in range(total)):
+            print("Reponse RCON incomplete ou expiree", file=sys.stderr)
+            return 3
+        out = b"".join(parts[i] for i in range(total))
         sys.stdout.write(out.decode(errors="ignore"))
     except Exception as exc:
         print(str(exc), file=sys.stderr)
@@ -119,11 +127,13 @@ def _script_path(cfg):
 def _ensure_deployed(cfg):
     """Dépose le script RCON côté serveur (une fois par session)."""
     path = _script_path(cfg)
-    key = (cfg.get("host"), path)
+    key = (cfg.get("host"), cfg.get("port"), cfg.get("user"), path)
     if key in _deployed:
         return path
     connection.write_file(path, RCONCTL_SCRIPT)
-    connection.execute(f"chmod 700 {quote(path)}")
+    code, out, err = connection.execute(f"chmod 700 {quote(path)}")
+    if code:
+        raise RuntimeError(err or out or "Déploiement du client RCON impossible.")
     _deployed.add(key)
     return path
 

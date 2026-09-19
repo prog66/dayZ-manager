@@ -1,14 +1,14 @@
 """Thème (QSS) de l'application — sombre, moderne, accent teal/bleu."""
 
 # Palette
-BG = "#0d1117"          # fond général
-SURFACE = "#161b22"     # panneaux / cartes
-SURFACE_2 = "#1c2230"   # champs
-BORDER = "#2a3038"
-TEXT = "#e6edf3"
-MUTED = "#8b949e"
-ACCENT = "#1f6feb"
-ACCENT_HOVER = "#388bfd"
+BG = "#101514"          # fond général
+SURFACE = "#19201d"     # panneaux / cartes
+SURFACE_2 = "#212b26"   # champs
+BORDER = "#34443a"
+TEXT = "#edf2e9"
+MUTED = "#a3b3a7"
+ACCENT = "#397b62"
+ACCENT_HOVER = "#479574"
 GREEN = "#2ea043"
 GREEN_HOVER = "#3fb950"
 RED = "#da3633"
@@ -18,11 +18,11 @@ AMBER = "#d29922"
 STYLESHEET = f"""
 * {{
     font-family: "Segoe UI", "Inter", sans-serif;
-    font-size: 11pt;
+    font-size: 10pt;
     color: {TEXT};
 }}
 
-QMainWindow, QWidget#root {{
+QMainWindow, QDialog, QMessageBox, QWidget#root {{
     background: {BG};
 }}
 
@@ -116,6 +116,10 @@ QFrame#panel, QFrame#card {{
 }}
 QLabel#cardTitle {{ color: {MUTED}; font-size: 9.5pt; }}
 QLabel#cardValue {{ font-size: 16pt; font-weight: 800; }}
+QTableWidget {{ background: {BG}; alternate-background-color: {SURFACE}; gridline-color: {BORDER}; border: 1px solid {BORDER}; }}
+QHeaderView::section {{ background: {SURFACE_2}; color: {TEXT}; padding: 8px; border: none; }}
+QProgressBar {{ background: {SURFACE_2}; border: 1px solid {BORDER}; border-radius: 6px; text-align: center; min-height: 22px; }}
+QProgressBar::chunk {{ background: {ACCENT}; border-radius: 5px; }}
 
 /* ----- Boutons ----- */
 QPushButton {{

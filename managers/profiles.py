@@ -80,7 +80,10 @@ def export_bundle(path, settings, profiles, server_files=None):
         "format": "dayz-manager-profile-v1",
         "settings": safe_settings,
         "map_profiles": profiles,
-        "server_files": server_files or {},
+        # Raw server files can contain passwords, shell assignments, and tokens.
+        # A portable profile must not advertise secret exclusion while carrying
+        # those files. Restore operations continue to accept older snapshots.
+        "server_files": {},
     }
     destination = Path(path)
     with destination.open("w", encoding="utf-8") as handle:
@@ -89,7 +92,7 @@ def export_bundle(path, settings, profiles, server_files=None):
 
 def import_bundle(path):
     payload = _read_json(Path(path), {})
-    if payload.get("format") != "dayz-manager-profile-v1":
+    if not isinstance(payload, dict) or payload.get("format") != "dayz-manager-profile-v1":
         raise ValueError("Fichier de profil DayZ Manager non reconnu.")
     settings = payload.get("settings", {})
     profiles = payload.get("map_profiles", {})
@@ -101,4 +104,7 @@ def import_bundle(path):
         name: normalize_profile(name, value)
         for name, value in profiles.items()
     }
+    for key in ("password", "steam_pass", "steam_api_key", "rcon_password",
+                "discord_webhook", "notification_email_password", "user_role"):
+        settings.pop(key, None)
     return settings, normalized, server_files

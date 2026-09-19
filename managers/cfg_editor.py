@@ -329,7 +329,7 @@ def import_mission(cfg, local_dir, name, progress=None):
     qui doit correspondre au ``template`` posé dans serverDZ.cfg."""
     _unused_mod, name = _validate_map_names(None, name)
     remote = f"{mpmissions_path(cfg)}/{name}"
-    connection.upload_dir(local_dir, remote, progress=progress)
+    connection.import_mission(local_dir, remote, progress=progress)
     return name
 
 

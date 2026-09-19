@@ -3,7 +3,13 @@ import unittest
 from pathlib import Path
 
 from tools.verify_environment import read_lock
-from managers.config_manager import DEFAULTS
+from managers.config_manager import (
+    DEFAULTS,
+    DEFAULT_NOTIFICATION_EMAIL_FROM,
+    DEFAULT_NOTIFICATION_EMAIL_HOST,
+    DEFAULT_NOTIFICATION_EMAIL_TO,
+    DEFAULT_NOTIFICATION_EMAIL_USER,
+)
 from version import GITHUB_REPOSITORY, GITHUB_REPOSITORY_URL
 
 
@@ -15,6 +21,25 @@ class EnvironmentTests(unittest.TestCase):
             GITHUB_REPOSITORY_URL,
         )
         self.assertEqual(GITHUB_REPOSITORY_URL, DEFAULTS["github_repository"])
+
+    def test_openxchange_email_defaults_are_prefilled(self):
+        self.assertEqual(DEFAULT_NOTIFICATION_EMAIL_HOST, "smtp.openxchange.eu")
+        self.assertEqual(
+            DEFAULTS["notification_email_host"],
+            DEFAULT_NOTIFICATION_EMAIL_HOST,
+        )
+        self.assertEqual(
+            DEFAULTS["notification_email_user"],
+            DEFAULT_NOTIFICATION_EMAIL_USER,
+        )
+        self.assertEqual(
+            DEFAULTS["notification_email_from"],
+            DEFAULT_NOTIFICATION_EMAIL_FROM,
+        )
+        self.assertEqual(
+            DEFAULTS["notification_email_to"],
+            DEFAULT_NOTIFICATION_EMAIL_TO,
+        )
 
     def test_lock_parser_accepts_exact_versions(self):
         with tempfile.TemporaryDirectory() as directory:

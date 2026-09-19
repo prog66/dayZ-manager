@@ -35,6 +35,8 @@ def build_archive(source: Path, output: Path) -> tuple[Path, Path]:
         for path in sorted(source.rglob("*"), key=lambda item: item.as_posix().lower()):
             if not path.is_file():
                 continue
+            if path.name in {"config.json", "map_profiles.json", "known_hosts"}:
+                continue
             relative = Path(source.name) / path.relative_to(source)
             info = zipfile.ZipInfo(relative.as_posix())
             info.date_time = (1980, 1, 1, 0, 0, 0)

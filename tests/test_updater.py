@@ -104,6 +104,7 @@ class UpdaterTests(unittest.TestCase):
             archive, _ = build_archive(package, root / "update.zip")
             install = root / "installed"
             install.mkdir()
+            (install / "DayZManager.exe").write_bytes(b"old executable")
             (install / "config.json").write_text("local", encoding="utf-8")
             (install / "map_profiles.json").write_text("maps", encoding="utf-8")
             info = updater.UpdateInfo(

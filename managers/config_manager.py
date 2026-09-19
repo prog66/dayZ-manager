@@ -10,6 +10,8 @@ import base64
 import json
 from pathlib import Path
 import sys
+import os
+import tempfile
 
 from version import GITHUB_REPOSITORY_URL
 
@@ -24,6 +26,12 @@ CONFIG_FILE = APP_DATA_DIR / "config.json"
 
 # Préfixe marquant une valeur obfusquée.
 _OBF = "b64:"
+
+DEFAULT_NOTIFICATION_EMAIL_HOST = "smtp.openxchange.eu"
+DEFAULT_NOTIFICATION_EMAIL_PORT = 587
+DEFAULT_NOTIFICATION_EMAIL_USER = "amelia@nightinvasion.fr"
+DEFAULT_NOTIFICATION_EMAIL_FROM = "amelia@nightinvasion.fr"
+DEFAULT_NOTIFICATION_EMAIL_TO = "amelia@nightinvasion.fr"
 
 # Champs traités comme des secrets (obfusqués sur disque).
 _SECRET_KEYS = (
@@ -57,12 +65,12 @@ DEFAULTS = {
     "schedule_timezone": "Europe/Paris",
     "discord_webhook": "",
     "notification_email_enabled": False,
-    "notification_email_host": "",
-    "notification_email_port": 587,
-    "notification_email_user": "",
+    "notification_email_host": DEFAULT_NOTIFICATION_EMAIL_HOST,
+    "notification_email_port": DEFAULT_NOTIFICATION_EMAIL_PORT,
+    "notification_email_user": DEFAULT_NOTIFICATION_EMAIL_USER,
     "notification_email_password": "",
-    "notification_email_from": "",
-    "notification_email_to": "",
+    "notification_email_from": DEFAULT_NOTIFICATION_EMAIL_FROM,
+    "notification_email_to": DEFAULT_NOTIFICATION_EMAIL_TO,
     # Mode d'accès local à l'application.
     "user_role": "admin",
     # Dépôt public utilisé par le vérificateur de mises à jour.
@@ -93,7 +101,9 @@ class ConfigManager:
         if CONFIG_FILE.exists():
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                    data.update(json.load(f))
+                    loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        data.update(loaded)
             except (json.JSONDecodeError, OSError):
                 pass
 
@@ -112,7 +122,18 @@ class ConfigManager:
         except (TypeError, ValueError):
             data["notification_email_port"] = 587
         if data.get("user_role") not in {"admin", "operator", "viewer"}:
-            data["user_role"] = "admin"
+            data["user_role"] = "viewer"
+        for key, default, minimum, maximum in (
+            ("refresh_interval", 30, 10, 3600),
+            ("install_retries", 3, 1, 10),
+            ("rcon_port", 2310, 1, 65535),
+            ("port", 22, 1, 65535),
+            ("notification_email_port", 587, 1, 65535),
+        ):
+            try:
+                data[key] = max(minimum, min(maximum, int(data[key])))
+            except (ValueError, TypeError):
+                data[key] = default
         return data
 
     @staticmethod
@@ -122,5 +143,13 @@ class ConfigManager:
         for key in _SECRET_KEYS:
             out[key] = _encode(out.get(key, ""))
 
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(out, f, indent=4)
+        descriptor, temporary = tempfile.mkstemp(prefix=".config-", suffix=".tmp", dir=CONFIG_FILE.parent)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as f:
+                json.dump(out, f, indent=4, ensure_ascii=False)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(temporary, CONFIG_FILE)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)

@@ -11,19 +11,25 @@ from functools import partial
 from datetime import datetime
 
 from PyQt6.QtCore import Qt, QTimer, QSize, QUrl
-from PyQt6.QtGui import QPixmap, QDesktopServices, QColor, QBrush
+from PyQt6.QtGui import QPixmap, QDesktopServices, QColor, QBrush, QShortcut, QKeySequence
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QFrame, QLabel, QPushButton, QLineEdit, QListWidget,
     QListWidgetItem, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QCheckBox,
     QTabWidget, QStackedWidget, QScrollArea, QMessageBox, QInputDialog,
     QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
-    QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QFileDialog,
+    QVBoxLayout, QHBoxLayout, QGridLayout, QFormLayout, QFileDialog, QCompleter,
 )
 
-from managers.config_manager import ConfigManager
+from managers.config_manager import (
+    ConfigManager,
+    DEFAULT_NOTIFICATION_EMAIL_FROM,
+    DEFAULT_NOTIFICATION_EMAIL_HOST,
+    DEFAULT_NOTIFICATION_EMAIL_TO,
+    DEFAULT_NOTIFICATION_EMAIL_USER,
+)
 from managers import (
     commands, cfg_editor, workshop, scheduler, types_editor, rcon, map_manager,
-    profiles, notifications, permissions, updater,
+    profiles, notifications, permissions, updater, diagnostics,
 )
 from ssh.connection import connection
 from ssh.ssh_worker import SSHWorker, FuncWorker
@@ -67,6 +73,8 @@ class Dashboard(QMainWindow):
         self._available_update = None
         self._pending_update = None
         self._update_check_running = False
+        self._closing = False
+        self._stats_running = False
 
         self.apply_connection()
         self._build_ui()
@@ -91,14 +99,14 @@ class Dashboard(QMainWindow):
         # --- barre latérale ---
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(224)
+        sidebar.setFixedWidth(206)
         side = QVBoxLayout(sidebar)
         side.setContentsMargins(14, 18, 14, 14)
         side.setSpacing(6)
 
         brand = QLabel("DayZ Manager")
         brand.setObjectName("brand")
-        brand_sub = QLabel("Gestion serveur DayZ")
+        brand_sub = QLabel(f"CENTRE DE CONTRÔLE  /  {APP_VERSION}")
         brand_sub.setObjectName("brandSub")
         side.addWidget(brand)
         side.addWidget(brand_sub)
@@ -139,10 +147,41 @@ class Dashboard(QMainWindow):
 
         content = QVBoxLayout()
         content.setContentsMargins(0, 0, 0, 0)
+        toolbar = QHBoxLayout()
+        toolbar.setContentsMargins(28, 14, 28, 0)
+        self.connection_context = QLabel()
+        self.connection_context.setObjectName("brandSub")
+        self.connection_context.setText("ESPACE SERVEUR  ·  Connexion dans Réglages")
+        toolbar.addWidget(self.connection_context, 1)
+        self.quick_search = QLineEdit()
+        self.quick_search.setPlaceholderText("Aller à une fonction…  Ctrl+K")
+        self.quick_search.setMaximumWidth(340)
+        self.quick_search.setMinimumWidth(280)
+        destinations = {
+            "Accueil": "build_dashboard_page", "Contrôle serveur": "build_server_page",
+            "Joueurs et bannissements": "build_players_page", "Cartes et missions": "build_maps_page",
+            "Mods": "build_mods_page", "Workshop": "build_workshop_page",
+            "Configuration DayZ": "build_config_page", "Économie et loot": "build_types_page",
+            "Fichiers et lancement": "build_files_page", "Console": "build_console_page",
+            "Journaux": "build_logs_page", "Sauvegardes": "build_backups_page",
+            "Diagnostic et activité": "build_diagnostics_page", "Automatisation": "build_schedule_page",
+            "Réglages et notifications": "build_settings_page", "Mises à jour": "build_about_page",
+        }
+        completer = QCompleter(list(destinations), self.quick_search)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.activated[str].connect(lambda text: (self._nav_to(destinations[text]), self.quick_search.clear()))
+        self.quick_search.setCompleter(completer)
+        self.search_shortcut = QShortcut(QKeySequence("Ctrl+K"), self)
+        self.search_shortcut.activated.connect(self.quick_search.setFocus)
+        toolbar.addWidget(self.quick_search)
+        content.addLayout(toolbar)
         content.addWidget(self.pages, 1)
 
         self.toast_label = QLabel("Prêt.")
         self.toast_label.setObjectName("toast")
+        self.toast_label.setWordWrap(True)
+        self.toast_label.setTextFormat(Qt.TextFormat.PlainText)
         toast_wrap = QHBoxLayout()
         toast_wrap.setContentsMargins(28, 0, 28, 14)
         toast_wrap.addWidget(self.toast_label, 1)
@@ -270,6 +309,7 @@ class Dashboard(QMainWindow):
             ("Opérations", "build_console_page"),
             ("Journaux", "build_logs_page"),
             ("Sauvegardes", "build_backups_page"),
+            ("Diagnostic & activité", "build_diagnostics_page"),
         ])
         self._building_group = None
 
@@ -308,7 +348,7 @@ class Dashboard(QMainWindow):
 
     def _track(self, worker):
         worker.finished.connect(lambda *_: self._untrack(worker))
-        worker.error.connect(lambda *_: self._untrack(worker))
+        worker.finished.connect(worker.deleteLater)
         self.workers.append(worker)
         worker.start()
         return worker
@@ -319,9 +359,9 @@ class Dashboard(QMainWindow):
 
     def run_cmd(self, command, ok=None, err=None, timeout=120):
         worker = SSHWorker(command, timeout=timeout)
-        worker.finished.connect(self._on_link_ok)
+        worker.completed.connect(self._on_link_ok)
         worker.error.connect(self._on_link_err)
-        worker.finished.connect(ok if ok else self.log)
+        worker.completed.connect(ok if ok else self.log)
         worker.error.connect(err if err else (lambda e: self.log(f"[ERREUR] {e}")))
         return self._track(worker)
 
@@ -395,10 +435,10 @@ class Dashboard(QMainWindow):
 
     def run_func(self, func, ok=None, err=None):
         worker = FuncWorker(func)
-        worker.finished.connect(self._on_link_ok)
+        worker.completed.connect(self._on_link_ok)
         worker.error.connect(self._on_link_err)
         if ok:
-            worker.finished.connect(ok)
+            worker.completed.connect(ok)
         worker.error.connect(err if err else (lambda e: self.log(f"[ERREUR] {e}")))
         return self._track(worker)
 
@@ -406,7 +446,7 @@ class Dashboard(QMainWindow):
         """Comme run_func mais pour des appels HTTP (n'altère pas l'état SSH)."""
         worker = FuncWorker(func)
         if ok:
-            worker.finished.connect(ok)
+            worker.completed.connect(ok)
         worker.error.connect(err if err else (lambda e: self.toast(str(e), "error")))
         return self._track(worker)
 
@@ -475,7 +515,7 @@ class Dashboard(QMainWindow):
         color, text = styles[state]
         self.status_pill.setText(text)
         self.status_pill.setStyleSheet(
-            f"background: {color}22; color: {color}; border: 1px solid {color};"
+            f"background: #22{color.lstrip('#')}; color: {color}; border: 1px solid {color};"
         )
 
     def _set_players_badge(self, count):
@@ -494,7 +534,7 @@ class Dashboard(QMainWindow):
             self.players_badge.setToolTip("Joueurs actuellement connectés (RCON).")
         self.players_badge.setText(text)
         self.players_badge.setStyleSheet(
-            f"background: {color}22; color: {color}; border: 1px solid {color}; "
+            f"background: #22{color.lstrip('#')}; color: {color}; border: 1px solid {color}; "
             "border-radius: 10px; padding: 5px 8px; font-weight: 700;"
         )
 
@@ -525,6 +565,8 @@ class Dashboard(QMainWindow):
             self._set_pill("error")
 
     def toast(self, message, kind="info"):
+        if hasattr(self, "activity_log"):
+            self.activity_log.appendPlainText(f"{datetime.now():%H:%M:%S}  [{kind.upper()}] {message}")
         palette = {
             "info": (theme.MUTED, "ℹ️"),
             "ok": (theme.GREEN, "✅"),
@@ -577,8 +619,18 @@ class Dashboard(QMainWindow):
     # PAGE — Tableau de bord
     # ================================================================== #
     def build_dashboard_page(self, layout):
-        self._header(layout, "Tableau de bord",
-                     "Vue d'ensemble du serveur en temps réel.")
+        self._header(layout, "Vue d'ensemble",
+                     "Préparer, surveiller et administrer votre serveur.")
+
+        welcome = self._panel()
+        welcome_layout = QHBoxLayout(welcome)
+        welcome_text = QLabel("<b>Votre serveur, pas à pas</b><br>Connexion → diagnostic → mission et mods → démarrage")
+        welcome_text.setWordWrap(True)
+        welcome_layout.addWidget(welcome_text, 1)
+        setup = QPushButton("Configurer la connexion")
+        setup.clicked.connect(lambda: self._nav_to("build_settings_page"))
+        welcome_layout.addWidget(setup)
+        layout.addWidget(welcome)
 
         bar = QHBoxLayout()
         self.refresh_dash_btn = QPushButton("⟳  Actualiser")
@@ -595,7 +647,7 @@ class Dashboard(QMainWindow):
         grid.setSpacing(14)
 
         self.card_status = self._make_card("État serveur", "—")
-        self.card_players = self._make_card("👥 Processus", "—")
+        self.card_players = self._make_card("Processus DayZ", "—")
         self.card_ram = self._make_card("💾 Mémoire", "—")
         self.card_cpu = self._make_card("🖥️ CPU", "—")
         self.card_uptime = self._make_card("⏱️ Uptime", "—")
@@ -608,17 +660,77 @@ class Dashboard(QMainWindow):
         self.card_health = self._make_card("🩺 Santé serveur", "—")
 
         cards = [
-            # Les métriques techniques détaillées restent disponibles dans
-            # l'état interne, mais l'accueil ne montre que les décisions
-            # utiles au premier coup d'œil.
             self.card_status, self.card_map, self.card_players, self.card_health,
             self.card_mod_updates, self.card_last_backup, self.card_uptime,
-            self.card_version,
+            self.card_version, self.card_ram, self.card_cpu, self.card_os, self.card_host,
         ]
         for i, (frame, _) in enumerate(cards):
             grid.addWidget(frame, i // 4, i % 4)
         layout.addLayout(grid)
+        shortcuts = QHBoxLayout()
+        for label, target in (
+            ("Contrôler le serveur", "build_server_page"),
+            ("Importer une mission", "build_maps_page"),
+            ("Sauvegardes", "build_backups_page"),
+            ("Diagnostic", "build_diagnostics_page"),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(partial(self._nav_to, target))
+            shortcuts.addWidget(button)
+        layout.addLayout(shortcuts)
         layout.addStretch(1)
+
+    def build_diagnostics_page(self, layout):
+        hint = QLabel("Contrôles en lecture seule. Chaque problème indique où intervenir.")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+        bar = QHBoxLayout()
+        self.diagnose_btn = QPushButton("Vérifier mon installation")
+        self.diagnose_btn.setObjectName("primary")
+        self.diagnose_btn.clicked.connect(self.run_diagnostics)
+        settings = QPushButton("Ouvrir les réglages")
+        settings.clicked.connect(lambda: self._nav_to("build_settings_page"))
+        bar.addWidget(self.diagnose_btn)
+        bar.addWidget(settings)
+        layout.addLayout(bar)
+        self.diagnostics_table = QTableWidget(0, 3)
+        self.diagnostics_table.setHorizontalHeaderLabels(["Contrôle", "État", "Conseil"])
+        self.diagnostics_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.diagnostics_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.diagnostics_table.setColumnWidth(0, 160)
+        layout.addWidget(self.diagnostics_table, 2)
+        layout.addWidget(QLabel("Activité de cette session — les erreurs restent consultables ici"))
+        self.activity_log = QPlainTextEdit()
+        self.activity_log.setReadOnly(True)
+        self.activity_log.setMaximumBlockCount(500)
+        layout.addWidget(self.activity_log, 1)
+        self._show_diagnostics(diagnostics.local_checks(self.current_config()))
+
+    def _show_diagnostics(self, rows):
+        self.diagnose_btn.setEnabled(True)
+        self.diagnostics_table.setRowCount(len(rows))
+        for row, values in enumerate(rows):
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setToolTip(value)
+                self.diagnostics_table.setItem(row, column, item)
+        self.diagnostics_table.resizeRowsToContents()
+
+    def run_diagnostics(self):
+        cfg = self.current_config()
+        if not cfg.get("host") or not cfg.get("user") or not str(cfg.get("lgsm_path", "")).startswith("/"):
+            self._show_diagnostics(diagnostics.local_checks(cfg))
+            self.toast("Complète les réglages de connexion pour lancer les contrôles distants.", "warn")
+            return
+        self.diagnose_btn.setEnabled(False)
+        def failed(error):
+            self.diagnose_btn.setEnabled(True)
+            self.toast(f"Diagnostic interrompu : {error}", "error")
+        self.run_func(
+            partial(diagnostics.inspect_server, cfg),
+            ok=lambda rows: (self._show_diagnostics(rows), self.toast("Diagnostic terminé. Consulte les conseils affichés.")),
+            err=failed,
+        )
 
     def _make_card(self, title, value):
         card = QFrame()
@@ -643,11 +755,15 @@ class Dashboard(QMainWindow):
             self.stats_timer.start(interval)
 
     def refresh_server_stats(self):
+        if self._closing or self._stats_running:
+            return
         cfg = self.current_config()
         if not cfg["host"] or not cfg["user"]:
             self.card_status[1].setText("Non configuré")
             self._set_players_badge(None)
             return
+        self._stats_running = True
+        self.refresh_dash_btn.setEnabled(False)
         self.run_cmd(
             commands.server_stats(cfg),
             ok=self.update_stats,
@@ -677,6 +793,14 @@ class Dashboard(QMainWindow):
             str(len(self._mod_updates)) if self._mod_updates else "À vérifier"
         )
         self._refresh_dashboard_mod_updates(cfg)
+        pending = list(self.workers)
+        def check_pending():
+            if all(item not in self.workers for item in pending):
+                self._stats_running = False
+                self.refresh_dash_btn.setEnabled(True)
+            else:
+                QTimer.singleShot(150, check_pending)
+        QTimer.singleShot(150, check_pending)
 
     def _refresh_dashboard_mod_updates(self, cfg):
         self.run_cmd(
@@ -1103,6 +1227,8 @@ class Dashboard(QMainWindow):
         return num, name
 
     def broadcast_message(self):
+        if not self._allow("moderation"):
+            return
         cfg = self._rcon_ready()
         if not cfg:
             return
@@ -1118,6 +1244,8 @@ class Dashboard(QMainWindow):
         )
 
     def message_player(self):
+        if not self._allow("moderation"):
+            return
         cfg = self._rcon_ready()
         if not cfg:
             return
@@ -1135,6 +1263,8 @@ class Dashboard(QMainWindow):
         )
 
     def kick_player(self):
+        if not self._allow("moderation"):
+            return
         cfg = self._rcon_ready()
         if not cfg:
             return
@@ -1154,6 +1284,8 @@ class Dashboard(QMainWindow):
         )
 
     def ban_player(self):
+        if not self._allow("moderation"):
+            return
         cfg = self._rcon_ready()
         if not cfg:
             return
@@ -1201,6 +1333,8 @@ class Dashboard(QMainWindow):
                 self.bans_table.setItem(row, col, QTableWidgetItem(str(value)))
 
     def remove_selected_ban(self):
+        if not self._allow("moderation"):
+            return
         cfg = self._rcon_ready()
         if not cfg:
             return
@@ -1221,6 +1355,8 @@ class Dashboard(QMainWindow):
         )
 
     def reload_bans(self):
+        if not self._allow("moderation"):
+            return
         cfg = self._rcon_ready()
         if not cfg:
             return
@@ -1232,6 +1368,8 @@ class Dashboard(QMainWindow):
 
     # ----- Ban hors-ligne (GUID / SteamID64 / IP) -----
     def offline_ban(self):
+        if not self._allow("moderation"):
+            return
         cfg = self._rcon_ready()
         if not cfg:
             return
@@ -1281,6 +1419,8 @@ class Dashboard(QMainWindow):
         self.toast(f"{label} → {path}", "ok")
 
     def import_bans(self):
+        if not self._allow("moderation"):
+            return
         cfg = self._rcon_ready()
         if not cfg:
             return
@@ -1922,6 +2062,8 @@ class Dashboard(QMainWindow):
         ]
 
     def _persist_mods_order(self):
+        if not self._allow("write"):
+            return
         cfg = self._require_config()
         if not cfg:
             return
@@ -1942,6 +2084,8 @@ class Dashboard(QMainWindow):
         )
 
     def _move_mod(self, delta):
+        if not self._allow("write"):
+            return
         row = self.mod_list.currentRow()
         if row < 0:
             return
@@ -2826,41 +2970,18 @@ class Dashboard(QMainWindow):
             )
 
     def import_mission_dialog(self):
-        """Téléverse un dossier de mission local dans mpmissions.
-
-        Beaucoup de mods de carte (dont @DeerIsle) n'embarquent pas la
-        mission serveur : on permet de l'importer ici pour que le
-        ``template`` posé par « Définir comme carte active » pointe sur un
-        dossier réel."""
+        """Importe un dossier ou un ZIP avec progression et sauvegarde."""
+        if not self._allow("write"):
+            return
         cfg = self._require_config()
         if not cfg:
             return
-        local_dir = QFileDialog.getExistingDirectory(
-            self, "Dossier de mission à importer (ex. dayzOffline.deerisle)"
-        )
-        if not local_dir:
-            return
-        default_name = os.path.basename(os.path.normpath(local_dir))
-        name, ok = QInputDialog.getText(
-            self, "Nom du dossier de mission",
-            "Nom du dossier sous mpmissions (doit correspondre au template) :",
-            text=default_name,
-        )
-        if not ok or not name.strip():
-            return
-        name = name.strip()
-        try:
-            _unused_mod, name = cfg_editor._validate_map_names(None, name)
-        except ValueError as exc:
-            self.toast(str(exc), "error")
-            return
-        self.toast(f"Import de « {name} » en cours…", "info")
-        self.run_func(
-            partial(cfg_editor.import_mission, cfg, local_dir, name),
-            ok=lambda _: (self.toast(f"Mission « {name} » importée.", "ok"),
-                          self.refresh_maps()),
-            err=lambda e: self.toast(f"Échec de l'import : {e}", "error"),
-        )
+        from ui.mission_dialog import MissionImportDialog
+        dialog = MissionImportDialog(cfg, self)
+        dialog.exec()
+        if dialog.result_data:
+            self.toast(f"Mission {dialog.result_data['template']} importée.", "ok")
+            self.refresh_maps()
 
     # ================================================================== #
     # PAGE — Console
@@ -2906,6 +3027,8 @@ class Dashboard(QMainWindow):
         self.console.appendPlainText(line)
 
     def start_live_console(self):
+        if not self._allow("console"):
+            return
         if self.console_worker and self.console_worker.isRunning():
             self.toast("Console déjà active.", "info")
             return
@@ -3627,6 +3750,9 @@ class Dashboard(QMainWindow):
 
     def _load_settings_fields(self):
         cfg = self.current_config()
+        if hasattr(self, "connection_context"):
+            target = cfg.get("host") or "Connexion à configurer"
+            self.connection_context.setText(f"{target}  ·  {permissions.role_label(cfg.get('user_role'))}")
         self.host_edit.setText(cfg["host"])
         self.port_edit.setValue(int(cfg.get("port", 22)))
         self.user_edit.setText(cfg["user"])
@@ -3644,12 +3770,20 @@ class Dashboard(QMainWindow):
         self.timezone_edit.setText(cfg.get("schedule_timezone", "Europe/Paris"))
         self.discord_webhook_edit.setText(cfg.get("discord_webhook", ""))
         self.email_enabled_check.setChecked(bool(cfg.get("notification_email_enabled")))
-        self.email_host_edit.setText(cfg.get("notification_email_host", ""))
+        self.email_host_edit.setText(
+            cfg.get("notification_email_host") or DEFAULT_NOTIFICATION_EMAIL_HOST
+        )
         self.email_port_spin.setValue(int(cfg.get("notification_email_port", 587) or 587))
-        self.email_user_edit.setText(cfg.get("notification_email_user", ""))
+        self.email_user_edit.setText(
+            cfg.get("notification_email_user") or DEFAULT_NOTIFICATION_EMAIL_USER
+        )
         self.email_password_edit.setText(cfg.get("notification_email_password", ""))
-        self.email_from_edit.setText(cfg.get("notification_email_from", ""))
-        self.email_to_edit.setText(cfg.get("notification_email_to", ""))
+        self.email_from_edit.setText(
+            cfg.get("notification_email_from") or DEFAULT_NOTIFICATION_EMAIL_FROM
+        )
+        self.email_to_edit.setText(
+            cfg.get("notification_email_to") or DEFAULT_NOTIFICATION_EMAIL_TO
+        )
         repository = (
             cfg.get("github_repository", GITHUB_REPOSITORY_URL)
             or GITHUB_REPOSITORY_URL
@@ -3693,6 +3827,9 @@ class Dashboard(QMainWindow):
         }
 
     def save_settings(self):
+        if self.workers or (self.op_worker is not None and self.op_worker.isRunning()):
+            self.toast("Attends la fin des opérations avant de modifier la connexion.", "warn")
+            return
         # On part de la config complète pour ne pas écraser les réglages
         # gérés par d'autres pages (RCON, planification…) avec les valeurs
         # par défaut lors de la fusion dans ConfigManager.save.
@@ -3703,10 +3840,15 @@ class Dashboard(QMainWindow):
             self.toast("Seul un administrateur peut modifier le rôle local.", "warn")
             gathered["user_role"] = cfg.get("user_role", "admin")
         cfg.update(gathered)
-        ConfigManager.save(cfg)
+        try:
+            ConfigManager.save(cfg)
+        except OSError as exc:
+            self.toast(f"Réglages non enregistrés : {exc}", "error")
+            return
         self.apply_connection()
         self._configure_timer()
         self.toast("Réglages enregistrés.", "ok")
+        self._load_settings_fields()
 
     def sync_steam_with_lgsm(self):
         """Écrit l'identifiant Steam de l'interface dans le common.cfg distant."""
@@ -3771,22 +3913,12 @@ class Dashboard(QMainWindow):
         if not path:
             return
         cfg = self.current_config()
-        if not cfg.get("host") or not cfg.get("user"):
-            try:
-                profiles.export_bundle(path, cfg, profiles.load_profiles())
-            except OSError as exc:
-                self.toast(f"Export impossible : {exc}", "error")
-                return
-            self.toast("Profil exporté (secrets exclus).", "ok")
+        try:
+            profiles.export_bundle(path, cfg, profiles.load_profiles())
+        except OSError as exc:
+            self.toast(f"Export impossible : {exc}", "error")
             return
-        self.toast("Lecture de la configuration serveur pour export…", "info")
-        self.run_func(
-            partial(cfg_editor.read_serverdz, cfg),
-            ok=lambda server: self._export_profile_with_server(
-                path, cfg, server
-            ),
-            err=lambda e: self.toast(f"Export serveur impossible : {e}", "error"),
-        )
+        self.toast("Réglages et profils exportés. Secrets et fichiers serveur exclus.", "ok")
 
     def _export_profile_with_server(self, path, cfg, server_content):
         self.run_func(
@@ -3863,16 +3995,24 @@ class Dashboard(QMainWindow):
         if not data["host"] or not data["user"]:
             self.toast("IP et utilisateur obligatoires.", "error")
             return
-        connection.configure(data["host"], data["user"], data["password"], data["port"])
-        self._set_pill("connecting")
+        from ssh.ssh_client import SSHClient
+        def probe():
+            client = SSHClient()
+            try:
+                client.connect(data["host"], data["user"], data["password"], data["port"])
+                code, out, err = client.execute("echo CONNECTED", timeout=20)
+                if code:
+                    raise RuntimeError(err or out)
+                return out
+            finally:
+                client.close()
         self.toast("Test de connexion…", "info")
-        self.run_cmd(
-            "echo CONNECTED",
+        self.run_net(
+            probe,
             ok=lambda _: (self.toast("Connexion SSH réussie ✔", "ok"),
                           QMessageBox.information(self, "Connexion", "Connexion SSH réussie.")),
             err=lambda e: (self.toast("Connexion échouée.", "error"),
                            QMessageBox.critical(self, "Erreur SSH", str(e))),
-            timeout=20,
         )
 
     # ================================================================== #
@@ -3998,6 +4138,9 @@ class Dashboard(QMainWindow):
         self.toast(message, "error")
 
     def install_pending_update(self):
+        if self.workers or (self.op_worker is not None and self.op_worker.isRunning()):
+            self.toast("Termine les opérations en cours avant d'installer une mise à jour.", "warn")
+            return
         plan = self._pending_update
         if plan is None:
             self.toast("Télécharge d’abord une mise à jour.", "warn")
@@ -4084,6 +4227,10 @@ class Dashboard(QMainWindow):
         text.setPlainText(
             f"DayZ Manager — v{APP_VERSION}\n"
             "Auteur : Yann Escarbassière\n\n"
+            "Nouveautés v0.10.0 :\n"
+            "  • Accueil, navigation Ctrl+K et diagnostic guidé\n"
+            "  • Import ZIP/dossier, progression et sauvegarde des missions\n"
+            "  • Corrections SSH, droits, exports, RCON, cron et mises à jour\n\n"
             "Nouveautés v0.9.2 :\n"
             "  • Page de connexion corrigée : les libellés restent lisibles\n"
             "    quelle que soit la hauteur de la fenêtre\n"
@@ -4145,12 +4292,19 @@ class Dashboard(QMainWindow):
 
     # ================================================================== #
     def closeEvent(self, event):
-        try:
-            self.players_timer.stop()
-            self.stop_live_console()
-            self.stop_log_follow()
-            if self.op_worker is not None and self.op_worker.isRunning():
-                self.op_worker.stop()
-                self.op_worker.wait(2000)
-        finally:
-            super().closeEvent(event)
+        self._closing = True
+        self.stats_timer.stop()
+        self.players_timer.stop()
+        for stream in (self.console_worker, self.log_tail_worker):
+            if stream is not None and stream.isRunning():
+                stream.stop()
+        streams = (self.console_worker, self.log_tail_worker, self.op_worker)
+        if self.workers or any(stream is not None and stream.isRunning() for stream in streams):
+            if not getattr(self, "_close_notice", False):
+                self.toast("Fermeture après la fin des opérations en cours…", "info")
+                self._close_notice = True
+            event.ignore()
+            QTimer.singleShot(300, self.close)
+            return
+        connection.close()
+        super().closeEvent(event)

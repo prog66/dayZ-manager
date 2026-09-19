@@ -27,7 +27,7 @@ def send_email(cfg, subject, message, timeout=15):
     host = str(cfg.get("notification_email_host") or "").strip()
     recipient = str(cfg.get("notification_email_to") or "").strip()
     if not host or not recipient:
-        return "E-mail non configuré"
+        raise ValueError("Renseigne le serveur SMTP et le destinataire.")
     port = int(cfg.get("notification_email_port", 587) or 587)
     sender = str(cfg.get("notification_email_from") or recipient).strip()
     username = str(cfg.get("notification_email_user") or "").strip()
@@ -37,8 +37,13 @@ def send_email(cfg, subject, message, timeout=15):
     msg["From"] = sender
     msg["To"] = recipient
     msg.set_content(message)
-    with smtplib.SMTP(host, port, timeout=timeout) as server:
-        server.starttls(context=ssl.create_default_context())
+    if username and not password:
+        raise ValueError("Le mot de passe SMTP est manquant.")
+    smtp = smtplib.SMTP_SSL if port == 465 else smtplib.SMTP
+    options = {"context": ssl.create_default_context()} if port == 465 else {}
+    with smtp(host, port, timeout=timeout, **options) as server:
+        if port != 465:
+            server.starttls(context=ssl.create_default_context())
         if username:
             server.login(username, password)
         server.send_message(msg)
@@ -48,8 +53,17 @@ def send_email(cfg, subject, message, timeout=15):
 def send(cfg, subject, message):
     """Envoie vers les canaux activés et renvoie un résumé lisible."""
     results = []
+    failures = []
     if cfg.get("discord_webhook"):
-        results.append(send_discord(cfg["discord_webhook"], message))
+        try:
+            results.append(send_discord(cfg["discord_webhook"], message))
+        except Exception as exc:
+            failures.append(f"Discord : {exc}")
     if cfg.get("notification_email_enabled"):
-        results.append(send_email(cfg, subject, message))
+        try:
+            results.append(send_email(cfg, subject, message))
+        except Exception as exc:
+            failures.append(f"E-mail : {exc}")
+    if failures:
+        raise RuntimeError(" ; ".join(results + failures))
     return ", ".join(results) if results else "Aucune notification configurée"

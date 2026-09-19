@@ -15,7 +15,10 @@ _DENIED = {
 
 
 def can(role, action):
-    return action not in _DENIED.get(str(role or "admin"), _DENIED["admin"])
+    role = str(role or "viewer")
+    if role not in _DENIED or role == "viewer":
+        return action == "read"
+    return action not in _DENIED[role]
 
 
 def role_label(role):

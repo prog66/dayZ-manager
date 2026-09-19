@@ -11,12 +11,17 @@ Projet officiel : [github.com/prog66/dayZ-manager](https://github.com/prog66/day
 > **Signature du projet : Yann Escarbassière & Nova <3**
 
 ![Statut](https://img.shields.io/badge/statut-open%20source%20en%20construction-1f6feb)
-![Version](https://img.shields.io/badge/version-0.9.3-2ea043)
+![Version](https://img.shields.io/badge/version-0.10.0-2ea043)
 ![Plateforme](https://img.shields.io/badge/plateforme-Windows%2064--bit-0078d4)
 ![Interface](https://img.shields.io/badge/interface-PyQt6-41cd52)
 ![Licence](https://img.shields.io/badge/licence-GPL--3.0-blue)
 
 ## Sommaire
+
+Version 0.10.0 : nouvel accueil, recherche Ctrl+K, diagnostic intégré,
+import ZIP/dossier avec progression et sauvegarde au remplacement.
+Consulter le [rapport d'audit et la roadmap](AUDIT_0.10.0.md) et le
+[journal des modifications](CHANGELOG.md).
 
 - [Objectif](#objectif)
 - [Fonctionnalités](#fonctionnalités)
@@ -185,8 +190,9 @@ notifications peuvent utiliser un webhook Discord ou un serveur SMTP.
 
 ### Profils et rôles
 
-Les profils exportables transfèrent les réglages non secrets, les profils de
-cartes et, si demandé, un instantané des fichiers serveur.
+Les profils exportables transfèrent les réglages non secrets et les profils de
+cartes. Les nouveaux exports excluent les fichiers serveur bruts qui peuvent
+contenir des mots de passe. Les anciens snapshots restent importables.
 
 Les rôles locaux sont :
 
@@ -404,8 +410,8 @@ Avant publication :
 4. créer un tag correspondant exactement à la version.
 
 ```text
-APP_VERSION = "0.9.3"
-tag GitHub   = v0.9.3
+APP_VERSION = "0.10.0"
+tag GitHub   = v0.10.0
 ```
 
 Le workflow installe les versions verrouillées, teste, construit le paquet et

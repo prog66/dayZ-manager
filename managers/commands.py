@@ -19,6 +19,8 @@ def lgsm(cfg):
 # --------------------------------------------------------------------- #
 def server_action(cfg, action):
     """action ∈ start|stop|restart|update|validate|details|monitor"""
+    if action not in {"start", "stop", "restart", "update", "validate", "details", "monitor", "console"}:
+        raise ValueError("Action serveur inconnue.")
     return f"{lgsm(cfg)} ./dayzserver {action}"
 
 
@@ -29,7 +31,7 @@ def wait_for_server_state(cfg, online, attempts=12, delay=5):
     expected = "online" if online else "offline"
     return f"""{lgsm(cfg)}
 for i in $(seq 1 {attempts}); do
-    if pgrep -f DayZServer >/dev/null; then state=online; else state=offline; fi
+    if pgrep -f '[D]ayZServer' >/dev/null; then state=online; else state=offline; fi
     if [ "$state" = "{expected}" ]; then
         echo "SERVER_STATE=$state"
         exit 0
@@ -47,8 +49,8 @@ exit 1
 # --------------------------------------------------------------------- #
 def server_stats(cfg):
     return f"""{lgsm(cfg)} {{
-        if pgrep -f DayZServer >/dev/null; then echo "online"; else echo "offline"; fi
-        pgrep -fc DayZServer || echo 0
+        if pgrep -f '[D]ayZServer' >/dev/null; then echo "online"; else echo "offline"; fi
+        pgrep -fc '[D]ayZServer' || true
         free -m | awk '/Mem:/ {{printf "%d / %d Mo\\n", $3, $2}}'
         top -bn1 | awk -F'id,' '/%Cpu/ {{split($1, a, ","); printf "%.0f%%\\n", 100 - a[length(a)]}}'
         uptime -p 2>/dev/null || echo "-"
@@ -252,7 +254,7 @@ FILES=""
     FILES="$FILES lgsm/config-lgsm/dayzserver/common.cfg"
 [ -n "$FILES" ] || {{ echo "Aucun fichier DayZ à sauvegarder"; exit 1; }}
 echo "Archivage de :$FILES"
-tar -czvf "$ARCHIVE" $FILES
+tar -czvf "$ARCHIVE" $FILES || exit $?
 echo "BACKUP:$ARCHIVE"
 """
 
@@ -279,10 +281,24 @@ def restore_backup(cfg, archive_name):
     return f"""
 ROOT={root}
 ARCHIVE={archive}
+test -f "$ARCHIVE" || exit 1
 case "$(tar -tzf "$ARCHIVE" 2>/dev/null | head -n 1)" in
     serverfiles/*|lgsm/*) DEST="$ROOT" ;;
     *) DEST="$ROOT/serverfiles" ;;
 esac
+python3 - "$ARCHIVE" "$DEST" <<'PY'
+import os, pathlib, sys, tarfile
+destination = os.path.realpath(sys.argv[2])
+with tarfile.open(sys.argv[1], 'r:gz') as archive:
+    for entry in archive:
+        name = pathlib.PurePosixPath(entry.name)
+        if name.is_absolute() or '..' in name.parts or not (entry.isfile() or entry.isdir()):
+            raise SystemExit('Archive refusee : chemin ou lien non autorise')
+        target = os.path.realpath(os.path.join(destination, *name.parts))
+        if os.path.commonpath([destination, target]) != destination:
+            raise SystemExit('Archive refusee : destination hors du dossier serveur')
+PY
+[ $? -eq 0 ] || exit 1
 echo "Restauration en cours…"
 tar -xzvf "$ARCHIVE" -C "$DEST" && echo RESTORED
 """
@@ -323,7 +339,7 @@ def verify_map_loaded(cfg, template):
     return f"""
 ROOT={root}
 TEMPLATE={needle}
-if pgrep -f DayZServer >/dev/null; then
+if pgrep -f '[D]ayZServer' >/dev/null; then
     echo PROCESS=online
 else
     echo PROCESS=offline
@@ -388,7 +404,7 @@ def server_health(cfg):
     root = quote(cfg["lgsm_path"])
     return f"""
 ROOT={root}
-pgrep -f DayZServer >/dev/null && echo SERVER=online || echo SERVER=offline
+pgrep -f '[D]ayZServer' >/dev/null && echo SERVER=online || echo SERVER=offline
 free -m | awk '/Mem:/ {{printf "MEMORY=%s/%s Mo\\n", $3, $2}}'
 df -P "$ROOT" | awk 'NR==2 {{printf "DISK=%s%%\\n", $5}}'
 CRASHES=$(find "$ROOT/serverfiles" -maxdepth 5 -type f \\
